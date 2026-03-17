@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+<meta charset="UTF-8">
+<title>Room Availability System</title>
+
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="script.js" defer></script>
+
+</head>
+
+<body>
+
+<!-- LOGIN / REGISTER -->
+
+<div class="container" id="loginScreen">
+
+  <div class="left-card"></div>
+
+  <div class="right-card">
+    <div class="box">
+
+  <h2 id="title">Login</h2>
+
+  <input type="email" id="username" placeholder="Email" required>
+  <input type="password" id="password" placeholder="Password" required>
+
+  <select id="role" required>
+    <option value="">Select Role</option>
+    <option value="Student">Student</option>
+    <option value="Teacher">Teacher</option>
+  </select>
+
+  <button onclick="submitForm()">Submit</button>
+  <button class="toggle" onclick="toggleMode()">Create Account</button>
+
+</div>
+
+  </div>
+
+</div>
+
+<!-- DASHBOARD -->
+
+<div id="checkerScreen">
+
+  <div class="sidebar">
+
+<div>
+  <h3>CTU Rooms</h3>
+
+  <button onclick="showDashboard()">🏠 Dashboard</button>
+  <button id="scheduleBtn" onclick="showSchedules()">📋 View Schedules</button>
+  <button onclick="showCheckCard()">🔍 Check Room</button>
+
+  <p class="menu-title">Departments</p>
+  <button onclick="filterDept('CEAS')">CEAS</button>
+  <button onclick="filterDept('COE')">COE</button>
+  <button onclick="filterDept('CME')">CME</button>
+  <button onclick="filterDept('COT')">COT</button>
+
+  <!-- RESET BUTTON -->
+  <button id="resetBtn" onclick="clearData()">⚠ Reset Data</button>
+</div>
+
+<button class="logout-btn" onclick="logout()">🚪 Logout</button>
+
+  </div>
+
+  <div class="main">
+
+<div class="header">
+  <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+  <h2>Room Availability System</h2>
+  <div id="liveClock"></div>
+</div>
+
+<div class="content-area">
+
+  <!-- DASHBOARD -->
+  <div class="card" id="dashboardCard">
+
+    <h2>Live Room Status</h2>
+
+    <!-- STATUS LEGEND -->
+    <div class="legend">
+      <span>🟢 Available</span>
+      <span>🔴 Occupied</span>
+      <span>🟡 Starting Soon</span>
+    </div>
+
+    <div class="summary">
+
+      <div class="summary-box available-box">
+        <h4>Available</h4>
+        <p id="availableCount">0</p>
+      </div>
+
+      <div class="summary-box occupied-box">
+        <h4>Occupied</h4>
+        <p id="occupiedCount">0</p>
+      </div>
+
+      <div class="summary-box soon-box">
+        <h4>Starting Soon</h4>
+        <p id="soonCount">0</p>
+      </div>
+
+    </div>
+
+    <input type="text" id="searchRoom" placeholder="Search Room..." onkeyup="searchRoom()">
+
+    <div id="roomGrid"></div>
+
+    <h3>Room Usage Statistics</h3>
+    <canvas id="usageChart"></canvas>
+
+  </div>
+
+  <!-- CHECK ROOM -->
+  <div class="card hidden" id="checkCard">
+
+    <div class="card-header">
+      <h2>Check Room</h2>
+      <button id="addBtn" class="add-btn hidden" onclick="showAddCard()">➕ Add</button>
+    </div>
+
+    <label>Room</label>
+    <select id="room"></select>
+
+    <label>Day</label>
+    <select id="day">
+      <option>Monday</option>
+      <option>Tuesday</option>
+      <option>Wednesday</option>
+      <option>Thursday</option>
+      <option>Friday</option>
+    </select>
+
+    <label>Time</label>
+    <input type="time" id="time">
+
+    <button onclick="checkAvailability()">Check</button>
+
+    <p id="result"></p>
+
+  </div>
+
+  <!-- ADD SCHEDULE -->
+  <div class="card hidden" id="addCard">
+
+    <div class="card-header">
+      <button class="back-btn" onclick="showCheckCard()">⬅</button>
+      <h2>Add Schedule</h2>
+    </div>
+
+    <label>Department</label>
+    <select id="tDept">
+      <option value="">Select Department</option>
+      <option value="CEAS">CEAS</option>
+      <option value="COE">COE</option>
+      <option value="CME">CME</option>
+      <option value="COT">COT</option>
+    </select>
+
+    <label>Room Name</label>
+    <input type="text" id="tRoom">
+
+    <label>Day</label>
+    <select id="tDay">
+      <option>Monday</option>
+      <option>Tuesday</option>
+      <option>Wednesday</option>
+      <option>Thursday</option>
+      <option>Friday</option>
+    </select>
+
+    <label>Start</label>
+    <input type="time" id="tStart">
+
+    <label>End</label>
+    <input type="time" id="tEnd">
+
+    <button onclick="addSchedule()">Save</button>
+
+  </div>
+
+  <!-- SCHEDULE TABLE -->
+  <div class="card hidden" id="scheduleCard">
+
+    <div class="card-header">
+      <button class="back-btn" onclick="showDashboard()">⬅</button>
+      <h2>Schedules</h2>
+    </div>
+
+    <table id="scheduleTable">
+
+      <thead>
+        <tr>
+          <th>Room</th>
+          <th>Day</th>
+          <th>Start</th>
+          <th>End</th>
+          <th>Teacher</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+
+      <tbody></tbody>
+
+    </table>
+
+  </div>
+
+</div>
+
+  </div>
+
+</div>
+
+</body>
+</html>
