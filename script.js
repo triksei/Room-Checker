@@ -1,3 +1,33 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    deleteDoc,
+    doc,
+    onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// =======================
+// FIREBASE CONFIG
+// REPLACE WITH YOUR OWN
+// =======================
+const firebaseConfig = {
+    apiKey: "AIzaSyAp-64XKra7IDyzvAZIHuRn24kLpnKUjY4",
+    authDomain: "room-checker-523c3.firebaseapp.com",
+    projectId: "room-checker-523c3",
+    storageBucket: "room-checker-523c3.firebasestorage.app",
+    messagingSenderId: "918701442915",
+    appId: "1:918701442915:web:703dd759185d9e849c3556"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// =======================
+// APP STATE
+// =======================
 let isLogin = true;
 let currentUserRole = "";
 let currentUserEmail = "";
@@ -10,7 +40,9 @@ const scheduleBtn = document.getElementById("scheduleBtn");
 const addBtn = document.getElementById("addBtn");
 const resetBtn = document.getElementById("resetBtn");
 
-// USER CLASS
+// =======================
+// CLASSES
+// =======================
 class User {
     constructor(username, password, role) {
         this.username = username;
@@ -22,9 +54,9 @@ class User {
     }
 }
 
-// SCHEDULE CLASS
 class Schedule {
-    constructor(room, day, start, end, teacher) {
+    constructor(id, room, day, start, end, teacher) {
+        this.id = id;
         this.room = room;
         this.day = day;
         this.start = start;
@@ -36,7 +68,9 @@ class Schedule {
     }
 }
 
+// =======================
 // ROOMS
+// =======================
 const rooms = {
     CEAS: ["CEAS 101", "CEAS 102"],
     COE: ["COE 201", "COE 202"],
@@ -48,15 +82,15 @@ let accounts = {};
 let schedules = [];
 let chartInstance = null;
 
-// STORAGE
-function saveData() {
+// =======================
+// LOCAL STORAGE (ACCOUNTS ONLY)
+// =======================
+function saveAccounts() {
     localStorage.setItem("accounts", JSON.stringify(accounts));
-    localStorage.setItem("schedules", JSON.stringify(schedules));
 }
 
-function loadData() {
+function loadAccounts() {
     const acc = localStorage.getItem("accounts");
-    const sch = localStorage.getItem("schedules");
 
     if (acc) {
         const parsed = JSON.parse(acc);
@@ -65,20 +99,108 @@ function loadData() {
             accounts[u] = new User(parsed[u].username, parsed[u].password, parsed[u].role);
         }
     }
+}
 
-    if (sch) {
-        const parsed = JSON.parse(sch);
-        schedules = parsed.map(s => new Schedule(s.room, s.day, s.start, s.end, s.teacher));
+loadAccounts();
+
+// =======================
+// FIREBASE (SCHEDULES)
+// =======================
+async function loadSchedulesFromFirebase() {
+    try {
+        schedules = [];
+        const querySnapshot = await getDocs(collection(db, "schedules"));
+
+        querySnapshot.forEach((docSnap) => {
+            const s = docSnap.data();
+            schedules.push(
+                new Schedule(
+                    docSnap.id,
+                    s.room,
+                    s.day,
+                    s.start,
+                    s.end,
+                    s.teacher
+                )
+            );
+        });
+    } catch (error) {
+        console.error("Error loading schedules:", error);
+        alert("Failed to load schedules from Firebase.");
     }
 }
 
-loadData();
+async function addScheduleToFirebase(scheduleObj) {
+    try {
+        await addDoc(collection(db, "schedules"), {
+            room: scheduleObj.room,
+            day: scheduleObj.day,
+            start: scheduleObj.start,
+            end: scheduleObj.end,
+            teacher: scheduleObj.teacher
+        });
+    } catch (error) {
+        console.error("Error adding schedule:", error);
+        alert("Failed to save schedule.");
+    }
+}
 
+async function deleteScheduleFromFirebase(scheduleId) {
+    try {
+        await deleteDoc(doc(db, "schedules", scheduleId));
+    } catch (error) {
+        console.error("Error deleting schedule:", error);
+        alert("Failed to delete schedule.");
+    }
+}
+
+function listenToSchedules() {
+    onSnapshot(collection(db, "schedules"), (snapshot) => {
+        schedules = [];
+
+        snapshot.forEach((docSnap) => {
+            const s = docSnap.data();
+            schedules.push(
+                new Schedule(
+                    docSnap.id,
+                    s.room,
+                    s.day,
+                    s.start,
+                    s.end,
+                    s.teacher
+                )
+            );
+        });
+
+        if (checkerScreen.style.display === "flex") {
+            generateDashboard();
+            generateChart();
+
+            if (document.getElementById("room")) {
+                filterDept(currentDept);
+            }
+
+            const scheduleCardEl = document.getElementById("scheduleCard");
+            if (scheduleCardEl && !scheduleCardEl.classList.contains("hidden")) {
+                showSchedules();
+            }
+        }
+    }, (error) => {
+        console.error("Realtime listener error:", error);
+    });
+}
+
+listenToSchedules();
+
+// =======================
 // LOGIN
+// =======================
 function toggleMode() {
     isLogin = !isLogin;
     document.getElementById("title").innerText = isLogin ? "Login" : "Create Account";
 }
+
+window.toggleMode = toggleMode;
 
 function submitForm() {
     const user = document.getElementById("username").value.trim();
@@ -95,16 +217,14 @@ function submitForm() {
             currentUserRole = accounts[user].role;
             currentUserEmail = user;
 
-            // Reset UI
             resetBtn.style.display = "none";
             addBtn.classList.add("hidden");
             scheduleBtn.classList.add("hidden");
 
-            // Role-based access
             if (currentUserRole === "Teacher") {
-                resetBtn.style.display = "block";      // can reset
-                addBtn.classList.remove("hidden");     // can add schedule
-                scheduleBtn.classList.remove("hidden"); // can view schedule table
+                resetBtn.style.display = "block";
+                addBtn.classList.remove("hidden");
+                scheduleBtn.classList.remove("hidden");
             }
 
             loginScreen.style.display = "none";
@@ -113,7 +233,6 @@ function submitForm() {
             generateDashboard();
             generateChart();
             filterDept("CEAS");
-
         } else {
             alert("❌ Invalid login");
         }
@@ -124,24 +243,31 @@ function submitForm() {
         }
 
         accounts[user] = new User(user, pass, role);
-        saveData();
+        saveAccounts();
         alert("✅ Account created");
         toggleMode();
     }
 }
 
+window.submitForm = submitForm;
+
+// =======================
 // LOGOUT
+// =======================
 function logout() {
     checkerScreen.style.display = "none";
     loginScreen.style.display = "flex";
 
-    // hide all teacher-only buttons
     resetBtn.style.display = "none";
     addBtn.classList.add("hidden");
     scheduleBtn.classList.add("hidden");
 }
 
+window.logout = logout;
+
+// =======================
 // DASHBOARD
+// =======================
 function generateDashboard() {
     const grid = document.getElementById("roomGrid");
     grid.innerHTML = "";
@@ -173,8 +299,9 @@ function generateDashboard() {
             if (next) {
                 const start = new Date();
                 const [h, m] = next.start.split(":");
-                start.setHours(h, m);
+                start.setHours(Number(h), Number(m), 0, 0);
                 const diff = (start - now) / 60000;
+
                 if (diff <= 30) {
                     status = "STARTING SOON";
                     cardClass = "soon";
@@ -189,8 +316,10 @@ function generateDashboard() {
 
         const card = document.createElement("div");
         card.className = "room-card " + cardClass;
-        card.innerHTML = `<strong>${room}</strong><br>${status}<br>
-                          <button onclick="checkRoomDirect('${room}')">Check Room</button>`;
+        card.innerHTML = `
+            <strong>${room}</strong><br>${status}<br>
+            <button onclick="checkRoomDirect('${room}')">Check Room</button>
+        `;
         grid.appendChild(card);
     });
 
@@ -199,17 +328,17 @@ function generateDashboard() {
     document.getElementById("soonCount").innerText = soon;
 }
 
+// =======================
 // ADD SCHEDULE
-function addSchedule() {
+// =======================
+async function addSchedule() {
+    const dept = document.getElementById("tDept").value;
+    const room = document.getElementById("tRoom").value.trim().toUpperCase();
+    const day = document.getElementById("tDay").value;
+    const start = document.getElementById("tStart").value;
+    const end = document.getElementById("tEnd").value;
 
-    let dept = tDept.value;
-    let room = tRoom.value.trim().toUpperCase();
-    let day = tDay.value;
-    let start = tStart.value;
-    let end = tEnd.value;
-
-    // Validation
-    if (!dept || !room || !start || !end) {
+    if (!dept || !room || !day || !start || !end) {
         alert("⚠ Please input all fields to add a schedule");
         return;
     }
@@ -219,17 +348,18 @@ function addSchedule() {
         return;
     }
 
-    // CHECK if room exists in department list
     if (!rooms[dept].includes(room)) {
-        rooms[dept].push(room);   // ADD new room to department
+        rooms[dept].push(room);
     }
 
-    // Conflict check
     const conflict = schedules.find(s =>
-        s.room === room && s.day === day &&
-        ((start >= s.start && start < s.end) ||
-        (end > s.start && end <= s.end) ||
-        (start <= s.start && end >= s.end))
+        s.room === room &&
+        s.day === day &&
+        (
+            (start >= s.start && start < s.end) ||
+            (end > s.start && end <= s.end) ||
+            (start <= s.start && end >= s.end)
+        )
     );
 
     if (conflict) {
@@ -237,19 +367,27 @@ function addSchedule() {
         return;
     }
 
-    schedules.push(new Schedule(room, day, start, end, currentUserEmail));
+    const newSchedule = {
+        room,
+        day,
+        start,
+        end,
+        teacher: currentUserEmail
+    };
 
-    saveData();
+    await addScheduleToFirebase(newSchedule);
 
     alert("✅ Schedule saved");
-
-    // Refresh UI
     generateDashboard();
     generateChart();
-    filterDept(dept); // refresh dropdown
+    filterDept(dept);
 }
 
-// SHOW SCHEDULES (Teacher only)
+window.addSchedule = addSchedule;
+
+// =======================
+// SHOW SCHEDULES
+// =======================
 function showSchedules() {
     if (currentUserRole !== "Teacher") return;
 
@@ -259,29 +397,35 @@ function showSchedules() {
     schedules.forEach((s, i) => {
         table.innerHTML += `
         <tr>
-        <td>${s.room}</td>
-        <td>${s.day}</td>
-        <td>${s.start}</td>
-        <td>${s.end}</td>
-        <td>${s.teacher}</td>
-        <td><button onclick="deleteSchedule(${i})">Delete</button></td>
+            <td>${s.room}</td>
+            <td>${s.day}</td>
+            <td>${s.start}</td>
+            <td>${s.end}</td>
+            <td>${s.teacher}</td>
+            <td><button onclick="deleteSchedule(${i})">Delete</button></td>
         </tr>`;
     });
 
     hideAllCards();
-    scheduleCard.classList.remove("hidden");
+    document.getElementById("scheduleCard").classList.remove("hidden");
 }
 
-function deleteSchedule(i) {
-    schedules.splice(i, 1);
-    saveData();
+window.showSchedules = showSchedules;
+
+async function deleteSchedule(i) {
+    if (!schedules[i]) return;
+    await deleteScheduleFromFirebase(schedules[i].id);
     showSchedules();
     generateDashboard();
+    generateChart();
 }
 
-// CHECK ROOM with validation
-function checkAvailability() {
+window.deleteSchedule = deleteSchedule;
 
+// =======================
+// CHECK ROOM
+// =======================
+function checkAvailability() {
     const room = document.getElementById("room").value;
     const day = document.getElementById("day").value;
     const time = document.getElementById("time").value;
@@ -296,35 +440,26 @@ function checkAvailability() {
     );
 
     if (occupied) {
-
         const suggestion = suggestRoom(day, time);
 
         if (suggestion && suggestion !== room) {
-
             document.getElementById("result").innerHTML =
                 "❌ OCCUPIED <br> ✅ Suggested Room: <b>" + suggestion + "</b>";
-
         } else {
-
             document.getElementById("result").innerHTML =
                 "❌ OCCUPIED <br> ⚠ No available rooms";
-
         }
-
     } else {
-
         document.getElementById("result").innerHTML = "✅ VACANT";
-
     }
-
 }
 
-function suggestRoom(day, time) {
+window.checkAvailability = checkAvailability;
 
+function suggestRoom(day, time) {
     const allRooms = Object.values(rooms).flat();
 
     for (let r of allRooms) {
-
         const occupied = schedules.some(
             s => s.room === r && s.day === day && s.isOccupied(time)
         );
@@ -332,24 +467,29 @@ function suggestRoom(day, time) {
         if (!occupied) {
             return r;
         }
-
     }
 
     return null;
 }
 
+// =======================
 // SEARCH
+// =======================
 function searchRoom() {
     const input = document.getElementById("searchRoom").value.toLowerCase();
+
     document.querySelectorAll(".room-card").forEach(card => {
         const name = card.querySelector("strong").innerText.toLowerCase();
         card.style.display = name.includes(input) ? "flex" : "none";
     });
 }
 
-// CHART
-function generateChart() {
+window.searchRoom = searchRoom;
 
+// =======================
+// CHART
+// =======================
+function generateChart() {
     const usage = {};
 
     rooms[currentDept].forEach(r => usage[r] = 0);
@@ -361,6 +501,8 @@ function generateChart() {
     });
 
     const ctx = document.getElementById("usageChart");
+
+    if (!ctx) return;
 
     if (chartInstance) chartInstance.destroy();
 
@@ -376,22 +518,33 @@ function generateChart() {
     });
 }
 
+// =======================
 // CLOCK
+// =======================
 function updateClock() {
     const now = new Date();
-    document.getElementById("liveClock").innerText =
-        now.toLocaleDateString() + " | " + now.toLocaleTimeString();
+    const liveClock = document.getElementById("liveClock");
+    if (liveClock) {
+        liveClock.innerText =
+            now.toLocaleDateString() + " | " + now.toLocaleTimeString();
+    }
 }
 setInterval(updateClock, 1000);
+updateClock();
 
+// =======================
 // UTIL
+// =======================
 function clearData() {
-    if (currentUserRole !== "Teacher") return; // only teacher can reset
-    if (confirm("Clear all data?")) {
-        localStorage.clear();
+    if (currentUserRole !== "Teacher") return;
+
+    if (confirm("Clear all local account data on this device?")) {
+        localStorage.removeItem("accounts");
         location.reload();
     }
 }
+
+window.clearData = clearData;
 
 function hideAllCards() {
     document.querySelectorAll(".card").forEach(c => c.classList.add("hidden"));
@@ -399,42 +552,55 @@ function hideAllCards() {
 
 function showDashboard() {
     hideAllCards();
-    dashboardCard.classList.remove("hidden");
+    document.getElementById("dashboardCard").classList.remove("hidden");
 }
+
+window.showDashboard = showDashboard;
 
 function showCheckCard() {
     hideAllCards();
-    checkCard.classList.remove("hidden");
+    document.getElementById("checkCard").classList.remove("hidden");
 }
+
+window.showCheckCard = showCheckCard;
 
 function showAddCard() {
     hideAllCards();
-    addCard.classList.remove("hidden");
+    document.getElementById("addCard").classList.remove("hidden");
 }
+
+window.showAddCard = showAddCard;
 
 function toggleSidebar() {
     document.querySelector(".sidebar").classList.toggle("active");
 }
 
-function filterDept(dept) {
+window.toggleSidebar = toggleSidebar;
 
-    currentDept = dept; // store current department
+function filterDept(dept) {
+    currentDept = dept;
 
     const room = document.getElementById("room");
     room.innerHTML = "";
 
     rooms[dept].forEach(r => room.add(new Option(r, r)));
 
-    generateDashboard();   // update room cards
-    generateChart();       // update statistics
+    generateDashboard();
+    generateChart();
 }
+
+window.filterDept = filterDept;
 
 function checkRoomDirect(roomName) {
     showCheckCard();
     document.getElementById("room").value = roomName;
 }
 
-// Auto-refresh dashboard
+window.checkRoomDirect = checkRoomDirect;
+
+// =======================
+// AUTO REFRESH UI
+// =======================
 setInterval(() => {
     if (checkerScreen.style.display === "flex") {
         generateDashboard();
