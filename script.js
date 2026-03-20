@@ -606,3 +606,6 @@ setInterval(() => {
         generateDashboard();
     }
 }, 60000);
+
+document.getElementById("submitBtn")?.addEventListener("click", submitForm);
+document.getElementById("toggleBtn")?.addEventListener("click", toggleMode);
