@@ -6,18 +6,19 @@ import {
     getDocs,
     deleteDoc,
     doc,
-    onSnapshot
+    onSnapshot,
+    query,
+    where
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // =======================
 // FIREBASE CONFIG
-// REPLACE WITH YOUR OWN
 // =======================
 const firebaseConfig = {
     apiKey: "AIzaSyAp-64XKra7IDyzvAZIHuRn24kLpnKUjY4",
     authDomain: "room-checker-523c3.firebaseapp.com",
     projectId: "room-checker-523c3",
-    storageBucket: "room-checker-523c3.firebasestorage.app",
+    storageBucket: "room-checker-523c3.appspot.com",
     messagingSenderId: "918701442915",
     appId: "1:918701442915:web:703dd759185d9e849c3556"
 };
@@ -44,7 +45,8 @@ const resetBtn = document.getElementById("resetBtn");
 // CLASSES
 // =======================
 class User {
-    constructor(username, password, role) {
+    constructor(id, username, password, role) {
+        this.id = id;
         this.username = username;
         this.password = password;
         this.role = role;
@@ -55,8 +57,9 @@ class User {
 }
 
 class Schedule {
-    constructor(id, room, day, start, end, teacher) {
+    constructor(id, dept, room, day, start, end, teacher) {
         this.id = id;
+        this.dept = dept;
         this.room = room;
         this.day = day;
         this.start = start;
@@ -69,9 +72,9 @@ class Schedule {
 }
 
 // =======================
-// ROOMS
+// DEFAULT ROOMS
 // =======================
-const rooms = {
+const defaultRooms = {
     CEAS: ["CEAS 101", "CEAS 102"],
     COE: ["COE 201", "COE 202"],
     CME: ["CME 301", "CME 302"],
@@ -83,28 +86,117 @@ let schedules = [];
 let chartInstance = null;
 
 // =======================
-// LOCAL STORAGE (ACCOUNTS ONLY)
+// HELPERS
 // =======================
-function saveAccounts() {
-    localStorage.setItem("accounts", JSON.stringify(accounts));
+function getRoomsForDept(dept) {
+    const baseRooms = defaultRooms[dept] ? [...defaultRooms[dept]] : [];
+
+    const scheduleRooms = schedules
+        .filter(s => s.dept === dept)
+        .map(s => s.room);
+
+    const merged = [...new Set([...baseRooms, ...scheduleRooms])];
+    return merged.sort();
 }
 
-function loadAccounts() {
-    const acc = localStorage.getItem("accounts");
+function refreshUI() {
+    if (checkerScreen.style.display === "flex") {
+        generateDashboard();
+        generateChart();
+        updateRoomDropdown();
+        updateAddRoomPlaceholder();
 
-    if (acc) {
-        const parsed = JSON.parse(acc);
-        accounts = {};
-        for (let u in parsed) {
-            accounts[u] = new User(parsed[u].username, parsed[u].password, parsed[u].role);
+        const scheduleCardEl = document.getElementById("scheduleCard");
+        if (scheduleCardEl && !scheduleCardEl.classList.contains("hidden")) {
+            showSchedules();
         }
     }
 }
 
-loadAccounts();
+function updateRoomDropdown() {
+    const roomSelect = document.getElementById("room");
+    if (!roomSelect) return;
+
+    const previousValue = roomSelect.value;
+    roomSelect.innerHTML = "";
+
+    const deptRooms = getRoomsForDept(currentDept);
+    deptRooms.forEach(r => roomSelect.add(new Option(r, r)));
+
+    if (deptRooms.includes(previousValue)) {
+        roomSelect.value = previousValue;
+    }
+}
+
+function updateAddRoomPlaceholder() {
+    const tRoom = document.getElementById("tRoom");
+    if (!tRoom) return;
+    tRoom.placeholder = `Enter room for ${currentDept}`;
+}
 
 // =======================
-// FIREBASE (SCHEDULES)
+// FIREBASE: ACCOUNTS
+// =======================
+async function loadAccountsFromFirebase() {
+    try {
+        accounts = {};
+        const querySnapshot = await getDocs(collection(db, "accounts"));
+
+        querySnapshot.forEach((docSnap) => {
+            const a = docSnap.data();
+            accounts[a.username] = new User(
+                docSnap.id,
+                a.username,
+                a.password,
+                a.role
+            );
+        });
+    } catch (error) {
+        console.error("Error loading accounts:", error);
+        alert("Failed to load accounts.");
+    }
+}
+
+async function findAccountByUsername(username) {
+    const q = query(collection(db, "accounts"), where("username", "==", username));
+    const querySnapshot = await getDocs(q);
+
+    if (querySnapshot.empty) return null;
+
+    const docSnap = querySnapshot.docs[0];
+    const data = docSnap.data();
+
+    return new User(docSnap.id, data.username, data.password, data.role);
+}
+
+async function createAccountInFirebase(userObj) {
+    return await addDoc(collection(db, "accounts"), {
+        username: userObj.username,
+        password: userObj.password,
+        role: userObj.role
+    });
+}
+
+function listenToAccounts() {
+    onSnapshot(collection(db, "accounts"), (snapshot) => {
+        accounts = {};
+
+        snapshot.forEach((docSnap) => {
+            const a = docSnap.data();
+            accounts[a.username] = new User(
+                docSnap.id,
+                a.username,
+                a.password,
+                a.role
+            );
+        });
+    }, (error) => {
+        console.error("Realtime accounts listener error:", error);
+    });
+}
+
+// =======================
+// FIREBASE: SCHEDULES
 // =======================
 async function loadSchedulesFromFirebase() {
     try {
@@ -116,6 +208,7 @@ async function loadSchedulesFromFirebase() {
             schedules.push(
                 new Schedule(
                     docSnap.id,
+                    s.dept || "CEAS",
                     s.room,
                     s.day,
                     s.start,
@@ -133,6 +226,7 @@ async function loadSchedulesFromFirebase() {
 async function addScheduleToFirebase(scheduleObj) {
     try {
         await addDoc(collection(db, "schedules"), {
+            dept: scheduleObj.dept,
             room: scheduleObj.room,
             day: scheduleObj.day,
             start: scheduleObj.start,
@@ -163,6 +257,7 @@ function listenToSchedules() {
             schedules.push(
                 new Schedule(
                     docSnap.id,
+                    s.dept || "CEAS",
                     s.room,
                     s.day,
                     s.start,
@@ -172,25 +267,23 @@ function listenToSchedules() {
             );
         });
 
-        if (checkerScreen.style.display === "flex") {
-            generateDashboard();
-            generateChart();
-
-            if (document.getElementById("room")) {
-                filterDept(currentDept);
-            }
-
-            const scheduleCardEl = document.getElementById("scheduleCard");
-            if (scheduleCardEl && !scheduleCardEl.classList.contains("hidden")) {
-                showSchedules();
-            }
-        }
+        refreshUI();
     }, (error) => {
-        console.error("Realtime listener error:", error);
+        console.error("Realtime schedules listener error:", error);
     });
 }
 
-listenToSchedules();
+// =======================
+// INIT
+// =======================
+async function initializeAppData() {
+    await loadAccountsFromFirebase();
+    await loadSchedulesFromFirebase();
+    listenToAccounts();
+    listenToSchedules();
+}
+
+initializeAppData();
 
 // =======================
 // LOGIN
@@ -198,12 +291,17 @@ listenToSchedules();
 function toggleMode() {
     isLogin = !isLogin;
     document.getElementById("title").innerText = isLogin ? "Login" : "Create Account";
+
+    const toggleBtn = document.getElementById("toggleBtn");
+    if (toggleBtn) {
+        toggleBtn.innerText = isLogin ? "Create Account" : "Back to Login";
+    }
 }
 
 window.toggleMode = toggleMode;
 
-function submitForm() {
-    const user = document.getElementById("username").value.trim();
+async function submitForm() {
+    const user = document.getElementById("username").value.trim().toLowerCase();
     const pass = document.getElementById("password").value.trim();
     const role = document.getElementById("role").value;
 
@@ -213,9 +311,11 @@ function submitForm() {
     }
 
     if (isLogin) {
-        if (accounts[user] && accounts[user].checkPassword(pass)) {
-            currentUserRole = accounts[user].role;
-            currentUserEmail = user;
+        const foundUser = await findAccountByUsername(user);
+
+        if (foundUser && foundUser.checkPassword(pass)) {
+            currentUserRole = foundUser.role;
+            currentUserEmail = foundUser.username;
 
             resetBtn.style.display = "none";
             addBtn.classList.add("hidden");
@@ -230,20 +330,24 @@ function submitForm() {
             loginScreen.style.display = "none";
             checkerScreen.style.display = "flex";
 
+            filterDept("CEAS");
             generateDashboard();
             generateChart();
-            filterDept("CEAS");
+            updateRoomDropdown();
         } else {
             alert("❌ Invalid login");
         }
     } else {
-        if (accounts[user]) {
+        const existingUser = await findAccountByUsername(user);
+
+        if (existingUser) {
             alert("⚠ User already exists");
             return;
         }
 
-        accounts[user] = new User(user, pass, role);
-        saveAccounts();
+        const newUser = new User(null, user, pass, role);
+        await createAccountInFirebase(newUser);
+
         alert("✅ Account created");
         toggleMode();
     }
@@ -261,6 +365,9 @@ function logout() {
     resetBtn.style.display = "none";
     addBtn.classList.add("hidden");
     scheduleBtn.classList.add("hidden");
+
+    currentUserRole = "";
+    currentUserEmail = "";
 }
 
 window.logout = logout;
@@ -270,6 +377,8 @@ window.logout = logout;
 // =======================
 function generateDashboard() {
     const grid = document.getElementById("roomGrid");
+    if (!grid) return;
+
     grid.innerHTML = "";
 
     let available = 0;
@@ -281,9 +390,11 @@ function generateDashboard() {
     const currentDay = days[now.getDay()];
     const currentTime = now.toTimeString().slice(0, 5);
 
-    rooms[currentDept].forEach(room => {
+    const deptRooms = getRoomsForDept(currentDept);
+
+    deptRooms.forEach(room => {
         const todaySchedules = schedules
-            .filter(s => s.room === room && s.day === currentDay)
+            .filter(s => s.dept === currentDept && s.room === room && s.day === currentDay)
             .sort((a, b) => a.start.localeCompare(b.start));
 
         let status = "AVAILABLE";
@@ -297,12 +408,12 @@ function generateDashboard() {
         } else {
             const next = todaySchedules.find(s => s.start > currentTime);
             if (next) {
-                const start = new Date();
+                const startTime = new Date();
                 const [h, m] = next.start.split(":");
-                start.setHours(Number(h), Number(m), 0, 0);
-                const diff = (start - now) / 60000;
+                startTime.setHours(Number(h), Number(m), 0, 0);
+                const diff = (startTime - now) / 60000;
 
-                if (diff <= 30) {
+                if (diff <= 30 && diff >= 0) {
                     status = "STARTING SOON";
                     cardClass = "soon";
                     soon++;
@@ -348,11 +459,8 @@ async function addSchedule() {
         return;
     }
 
-    if (!rooms[dept].includes(room)) {
-        rooms[dept].push(room);
-    }
-
     const conflict = schedules.find(s =>
+        s.dept === dept &&
         s.room === room &&
         s.day === day &&
         (
@@ -368,6 +476,7 @@ async function addSchedule() {
     }
 
     const newSchedule = {
+        dept,
         room,
         day,
         start,
@@ -378,9 +487,11 @@ async function addSchedule() {
     await addScheduleToFirebase(newSchedule);
 
     alert("✅ Schedule saved");
-    generateDashboard();
-    generateChart();
     filterDept(dept);
+
+    document.getElementById("tRoom").value = "";
+    document.getElementById("tStart").value = "";
+    document.getElementById("tEnd").value = "";
 }
 
 window.addSchedule = addSchedule;
@@ -394,17 +505,24 @@ function showSchedules() {
     const table = document.querySelector("#scheduleTable tbody");
     table.innerHTML = "";
 
-    schedules.forEach((s, i) => {
-        table.innerHTML += `
-        <tr>
-            <td>${s.room}</td>
-            <td>${s.day}</td>
-            <td>${s.start}</td>
-            <td>${s.end}</td>
-            <td>${s.teacher}</td>
-            <td><button onclick="deleteSchedule(${i})">Delete</button></td>
-        </tr>`;
-    });
+    schedules
+        .filter(s => s.dept === currentDept)
+        .sort((a, b) => {
+            if (a.room !== b.room) return a.room.localeCompare(b.room);
+            if (a.day !== b.day) return a.day.localeCompare(b.day);
+            return a.start.localeCompare(b.start);
+        })
+        .forEach((s, i) => {
+            table.innerHTML += `
+            <tr>
+                <td>${s.room}</td>
+                <td>${s.day}</td>
+                <td>${s.start}</td>
+                <td>${s.end}</td>
+                <td>${s.teacher}</td>
+                <td><button onclick="deleteScheduleById('${s.id}')">Delete</button></td>
+            </tr>`;
+        });
 
     hideAllCards();
     document.getElementById("scheduleCard").classList.remove("hidden");
@@ -412,15 +530,14 @@ function showSchedules() {
 
 window.showSchedules = showSchedules;
 
-async function deleteSchedule(i) {
-    if (!schedules[i]) return;
-    await deleteScheduleFromFirebase(schedules[i].id);
+async function deleteScheduleById(scheduleId) {
+    await deleteScheduleFromFirebase(scheduleId);
     showSchedules();
     generateDashboard();
     generateChart();
 }
 
-window.deleteSchedule = deleteSchedule;
+window.deleteScheduleById = deleteScheduleById;
 
 // =======================
 // CHECK ROOM
@@ -436,11 +553,11 @@ function checkAvailability() {
     }
 
     const occupied = schedules.some(
-        s => s.room === room && s.day === day && s.isOccupied(time)
+        s => s.dept === currentDept && s.room === room && s.day === day && s.isOccupied(time)
     );
 
     if (occupied) {
-        const suggestion = suggestRoom(day, time);
+        const suggestion = suggestRoom(currentDept, day, time);
 
         if (suggestion && suggestion !== room) {
             document.getElementById("result").innerHTML =
@@ -456,12 +573,12 @@ function checkAvailability() {
 
 window.checkAvailability = checkAvailability;
 
-function suggestRoom(day, time) {
-    const allRooms = Object.values(rooms).flat();
+function suggestRoom(dept, day, time) {
+    const deptRooms = getRoomsForDept(dept);
 
-    for (let r of allRooms) {
+    for (let r of deptRooms) {
         const occupied = schedules.some(
-            s => s.room === r && s.day === day && s.isOccupied(time)
+            s => s.dept === dept && s.room === r && s.day === day && s.isOccupied(time)
         );
 
         if (!occupied) {
@@ -491,17 +608,17 @@ window.searchRoom = searchRoom;
 // =======================
 function generateChart() {
     const usage = {};
+    const deptRooms = getRoomsForDept(currentDept);
 
-    rooms[currentDept].forEach(r => usage[r] = 0);
+    deptRooms.forEach(r => usage[r] = 0);
 
     schedules.forEach(s => {
-        if (rooms[currentDept].includes(s.room)) {
+        if (s.dept === currentDept && usage[s.room] !== undefined) {
             usage[s.room]++;
         }
     });
 
     const ctx = document.getElementById("usageChart");
-
     if (!ctx) return;
 
     if (chartInstance) chartInstance.destroy();
@@ -538,9 +655,8 @@ updateClock();
 function clearData() {
     if (currentUserRole !== "Teacher") return;
 
-    if (confirm("Clear all local account data on this device?")) {
-        localStorage.removeItem("accounts");
-        location.reload();
+    if (confirm("Clear all schedules and accounts from Firebase?")) {
+        alert("⚠ Clear All is not enabled in this version for safety.");
     }
 }
 
@@ -560,6 +676,7 @@ window.showDashboard = showDashboard;
 function showCheckCard() {
     hideAllCards();
     document.getElementById("checkCard").classList.remove("hidden");
+    updateRoomDropdown();
 }
 
 window.showCheckCard = showCheckCard;
@@ -567,6 +684,9 @@ window.showCheckCard = showCheckCard;
 function showAddCard() {
     hideAllCards();
     document.getElementById("addCard").classList.remove("hidden");
+
+    const tDept = document.getElementById("tDept");
+    if (tDept) tDept.value = currentDept;
 }
 
 window.showAddCard = showAddCard;
@@ -579,12 +699,7 @@ window.toggleSidebar = toggleSidebar;
 
 function filterDept(dept) {
     currentDept = dept;
-
-    const room = document.getElementById("room");
-    room.innerHTML = "";
-
-    rooms[dept].forEach(r => room.add(new Option(r, r)));
-
+    updateRoomDropdown();
     generateDashboard();
     generateChart();
 }
@@ -599,6 +714,12 @@ function checkRoomDirect(roomName) {
 window.checkRoomDirect = checkRoomDirect;
 
 // =======================
+// BUTTON EVENTS
+// =======================
+document.getElementById("submitBtn")?.addEventListener("click", submitForm);
+document.getElementById("toggleBtn")?.addEventListener("click", toggleMode);
+
+// =======================
 // AUTO REFRESH UI
 // =======================
 setInterval(() => {
@@ -606,6 +727,3 @@ setInterval(() => {
         generateDashboard();
     }
 }, 60000);
-
-document.getElementById("submitBtn")?.addEventListener("click", submitForm);
-document.getElementById("toggleBtn")?.addEventListener("click", toggleMode);
